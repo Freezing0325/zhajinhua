@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>炸金花</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a5c2a; color: #fff; font-family: 'Microsoft YaHei', sans-serif; min-height: 100vh; }
+
+  /* ── 登录 ── */
+  #login-screen {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px; gap: 16px;
+  }
+  #login-screen h1 { font-size: 2.5rem; color: #ffd700; text-shadow: 2px 2px 6px #000; letter-spacing: 4px; }
+  #login-screen input {
+    width: 100%; max-width: 320px; padding: 12px 16px; border-radius: 8px;
+    border: 2px solid #ffd700; background: rgba(0,0,0,0.45); color: #fff;
+    font-size: 1rem; outline: none;
+  }
+  #login-screen input::placeholder { color: #888; }
+
+  /* ── 按钮 ── */
+  .btn {
+    padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 0.82rem; font-weight: bold; transition: filter 0.15s;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .btn:hover:not(:disabled) { filter: brightness(1.18); }
+  .btn:disabled { opacity: 0.42; cursor: not-allowed; }
+  .btn-gold  { background: linear-gradient(135deg,#ffd700,#e6a800); color: #1a1a1a; }
+  .btn-red   { background: linear-gradient(135deg,#c0392b,#922b21); color: #fff; }
+  .btn-green { background: linear-gradient(135deg,#27ae60,#1e8449); color: #fff; }
+  .btn-gray  { background: #444; color: #ddd; }
+
+  /* ── 游戏主界面 ── */
+  #game-screen { display: none; flex-direction: column; min-height: 100vh; padding: 8px; gap: 8px; overflow-y: auto; }
+
+  #top-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(0,0,0,0.45); border-radius: 8px; padding: 8px 14px;
+  }
+  #pot-display { font-size: 1.1rem; color: #ffd700; font-weight: bold; }
+  #room-info   { font-size: 0.8rem; color: #aaa; }
+
+  /* ── 其他玩家区 ── */
+  #players-area { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .player-card {
+    background: rgba(0,0,0,0.4); border-radius: 10px; padding: 10px;
+    min-width: 130px; flex: 1; max-width: 170px;
+    border: 2px solid transparent; transition: border-color 0.3s;
+  }
+  .player-card.active  { border-color: #ffd700; box-shadow: 0 0 10px #ffd70066; }
+  .player-card.folded  { opacity: 0.38; }
+  .player-name   { font-weight: bold; font-size: 0.9rem; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .player-chips  { color: #ffd700; font-size: 0.8rem; }
+  .player-bet    { color: #aaa; font-size: 0.75rem; }
+  .player-status { font-size: 0.72rem; margin-top: 3px; color: #ccc; }
+  .cards-row     { display: flex; gap: 4px; margin-top: 6px; }
+
+  /* ══════════════════════════════════════
+     扑克牌样式
+  ══════════════════════════════════════ */
+  .card {
+    --cw: 46px;
+    --ch: 68px;
+    --fs: 0.48rem;   /* 角标字号 */
+    --pip: 0.56rem;  /* 花色点字号 */
+    width: var(--cw); height: var(--ch);
+    border-radius: 4px;
+    background: #fff;
+    border: 1px solid #bbb;
+    position: relative;
+    user-select: none;
+    box-shadow: 1px 2px 4px rgba(0,0,0,0.4);
+    flex-shrink: 0;
+  }
+  /* 角标：点数在上，花色在下，竖排显示 */
+  .card .tl, .card .br {
+    position: absolute; line-height: 1.05;
+    font-weight: bold; font-size: var(--fs);
+  }
+  .card .tl { top: 2px; left: 3px; text-align: left; }
+  .card .br { bottom: 2px; right: 3px; text-align: right; transform: rotate(180deg); }
+  .card .tl span, .card .br span { display: block; }
+
+  /* 花色点阵容器：3列×4行 grid，覆盖牌面中央区域 */
+  .card .pips {
+    position: absolute;
+    top: 18px; bottom: 16px; left: 3px; right: 3px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1fr 1fr;
+    align-items: center; justify-items: center;
+    font-size: var(--pip);
+  }
+  .card .pips .p { line-height: 1; }
+  .card .pips .p.flip { transform: rotate(180deg); }
+
+  /* 人头牌中央大字 */
+  .card .face-center {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: calc(var(--cw) * 0.52);
+    line-height: 1;
+  }
+
+  /* 颜色 */
+  .card.red  .tl, .card.red  .br, .card.red  .pips, .card.red  .face-center { color: #d32f2f; }
+  .card.black .tl, .card.black .br, .card.black .pips, .card.black .face-center { color: #111; }
+
+  /* 牌背 */
+  .card.back {
+    background: repeating-linear-gradient(
+      45deg, #1535a0 0px, #1535a0 5px, #1e45c8 5px, #1e45c8 10px
+    );
+    border: 2px solid #ffd700;
+    box-shadow: 1px 2px 5px rgba(0,0,0,0.5);
+  }
+  .card.back::after {
+    content: ''; position: absolute;
+    inset: 4px; border: 1.5px solid rgba(255,215,0,0.5); border-radius: 2px;
+  }
+
+  /* 自己手牌放大版 */
+  #my-cards .card {
+    --cw: 68px; --ch: 98px; --fs: 0.68rem; --pip: 0.9rem;
+  }
+  #my-cards .card .tl { top: 3px; left: 4px; }
+  #my-cards .card .br { bottom: 3px; right: 4px; }
+  #my-cards .card .pips { top: 24px; bottom: 22px; left: 5px; right: 5px; }
+
+  /* ── 我的区域 ── */
+  #my-area {
+    background: rgba(0,0,0,0.5); border-radius: 10px; padding: 12px;
+    border: 2px solid #27ae60;
+  }
+  #my-area h3 { color: #ffd700; margin-bottom: 8px; font-size: 0.95rem; }
+  #my-cards { display: flex; gap: 10px; margin-bottom: 10px; }
+  #hand-type { color: #ffd700; font-size: 0.85rem; margin-left: 6px; }
+
+  #actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center; }
+  #bet-input {
+    width: 64px; padding: 6px; border-radius: 6px; border: 1px solid #ffd700;
+    background: rgba(0,0,0,0.4); color: #fff; font-size: 0.85rem; text-align: center;
+  }
+  #bet-hint { font-size: 0.75rem; color: #aaa; width: 100%; }
+
+  #compare-area { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  #compare-area select {
+    padding: 8px; border-radius: 6px; border: 1px solid #555;
+    background: rgba(0,0,0,0.4); color: #fff; font-size: 0.88rem;
+    max-width: 180px; min-width: 0;
+  }
+
+  /* ── 聊天 ── */
+  #chat-area {
+    background: rgba(0,0,0,0.4); border-radius: 8px; padding: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #chat-log {
+    overflow-y: auto; max-height: 110px; font-size: 0.8rem;
+    color: #ccc; display: flex; flex-direction: column; gap: 2px;
+  }
+  #chat-log .msg-system { color: #ffd700; }
+  #chat-log .msg-action { color: #7ec8e3; }
+  #chat-input-row { display: flex; gap: 6px; }
+  #chat-input {
+    flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #555;
+    background: rgba(0,0,0,0.4); color: #fff; font-size: 0.85rem;
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.88); color: #fff; padding: 10px 24px;
+    border-radius: 20px; font-size: 0.95rem; z-index: 999; white-space: nowrap;
+    animation: fadeout 3.2s forwards; pointer-events: none;
+  }
+  @keyframes fadeout { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>炸金花</h1>
+  <input id="input-name" placeholder="输入你的昵称" maxlength="10">
+  <input id="input-room" placeholder="房间号（默认 default）" maxlength="20">
+  <button class="btn btn-gold" onclick="joinGame()">进入房间</button>
+</div>
+
+<div id="game-screen">
+  <div id="top-bar">
+    <div id="pot-display">底池：0</div>
+    <div id="room-info">房间：-</div>
+  </div>
+
+  <div id="players-area"></div>
+
+  <div id="my-area">
+    <h3>我的手牌<span id="hand-type"></span><span id="my-chips" style="float:right;font-size:0.85rem;">筹码：0</span></h3>
+    <div id="my-cards"></div>
+    <div id="actions">
+      <button class="btn btn-gray"  id="btn-ready"   onclick="sendReady()">准备</button>
+      <button class="btn btn-gray"  id="btn-look"    onclick="sendLook()"  disabled>看牌</button>
+      <input  id="bet-input" type="number" value="10" min="1">
+      <button class="btn btn-green" id="btn-bet"     onclick="sendBet()"   disabled>下注</button>
+      <button class="btn btn-gold quick-bet" onclick="quickBet(10)">10</button>
+      <button class="btn btn-gold quick-bet" onclick="quickBet(20)">20</button>
+      <button class="btn btn-gold quick-bet" onclick="quickBet(50)">50</button>
+      <button class="btn btn-gold quick-bet" onclick="quickBet(100)">100</button>
+      <button class="btn btn-red"   id="btn-fold"    onclick="sendFold()"  disabled>弃牌</button>
+      <div id="bet-hint"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:#ccc;cursor:pointer;width:100%;">
+        <input type="checkbox" id="chk-show-cards" onchange="sendShowCards(this.checked)">
+        牌局结束时向所有人展示我的牌
+      </label>
+    </div>
+    <div id="compare-area">
+      <select id="compare-select"></select>
+      <button class="btn btn-gold" id="btn-compare" onclick="sendCompare()" disabled>比牌</button>
+      <span id="compare-hint" style="font-size:0.72rem;color:#e88;"></span>
+    </div>
+  </div>
+
+  <div id="chat-area">
+    <div id="chat-log"></div>
+    <div id="chat-input-row">
+      <input id="chat-input" placeholder="发送消息..." maxlength="50"
+             onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="btn btn-gray" onclick="sendChat()">发送</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>

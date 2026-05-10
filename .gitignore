@@ -1,0 +1,26 @@
+# 依赖
+node_modules/
+
+# 二进制文件
+natapp.exe
+*.exe
+
+# 敏感配置（包含 authtoken）
+tunnel.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# 日志
+*.log
+npm-debug.log*
