@@ -135,6 +135,17 @@
   #my-area {
     background: rgba(0,0,0,0.5); border-radius: 10px; padding: 12px;
     border: 2px solid #27ae60;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  /* 自己回合：金色呼吸光晕，与对手高亮框风格统一 */
+  #my-area.my-turn {
+    border-color: #ffd700;
+    box-shadow: 0 0 16px rgba(255,215,0,0.55), inset 0 0 8px rgba(255,215,0,0.12);
+    animation: turnPulse 2s ease-in-out infinite;
+  }
+  @keyframes turnPulse {
+    0%, 100% { box-shadow: 0 0 16px rgba(255,215,0,0.55), inset 0 0 8px rgba(255,215,0,0.12); }
+    50%      { box-shadow: 0 0 28px rgba(255,215,0,0.8), inset 0 0 14px rgba(255,215,0,0.22); }
   }
   #my-area h3 { color: #ffd700; margin-bottom: 8px; font-size: 0.95rem; }
   #my-cards { display: flex; gap: 10px; margin-bottom: 10px; }
@@ -179,6 +190,93 @@
     animation: fadeout 3.2s forwards; pointer-events: none;
   }
   @keyframes fadeout { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+
+  /* ══════════════════════════════════════
+     比牌动画
+  ══════════════════════════════════════ */
+  #compare-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.85);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    animation: overlayIn 0.3s ease;
+  }
+  @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+  #compare-stage {
+    display: flex; align-items: center; justify-content: center; gap: 40px;
+    width: 100%; max-width: 900px; padding: 20px;
+  }
+
+  .compare-hand {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    transition: all 0.6s ease;
+  }
+  .compare-hand .compare-name {
+    font-size: 1.1rem; font-weight: bold; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,0.5);
+  }
+  .compare-hand .compare-cards {
+    display: flex; gap: 8px;
+  }
+  .compare-hand .compare-cards .card {
+    --cw: 70px; --ch: 100px; --fs: 0.68rem; --pip: 0.85rem;
+  }
+  .compare-hand .compare-cards .card .tl { top: 3px; left: 4px; }
+  .compare-hand .compare-cards .card .br { bottom: 3px; right: 4px; }
+  .compare-hand .compare-cards .card .pips { top: 26px; bottom: 22px; left: 5px; right: 5px; }
+
+  .compare-hand.hand-left  { animation: handSlideLeft  0.5s cubic-bezier(0.22, 0.61, 0.36, 1); }
+  .compare-hand.hand-right { animation: handSlideRight 0.5s cubic-bezier(0.22, 0.61, 0.36, 1); }
+  @keyframes handSlideLeft  { from { transform: translateX(-160px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes handSlideRight { from { transform: translateX(160px);  opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* 胜负状态 */
+  .compare-hand.loser {
+    opacity: 0.35; filter: grayscale(1); transform: scale(0.92);
+    transition: all 0.7s ease;
+  }
+  .compare-hand.loser .compare-name { color: #999; text-shadow: none; }
+  .compare-hand.winner {
+    transform: scale(1.06);
+    transition: all 0.7s ease;
+  }
+  .compare-hand.winner .compare-cards .card {
+    box-shadow: 0 0 24px 6px rgba(255,215,0,0.8), 0 0 48px 12px rgba(255,215,0,0.4);
+  }
+  .compare-hand.winner .compare-name {
+    color: #ffd700; text-shadow: 0 0 16px rgba(255,215,0,0.9);
+  }
+
+  /* ══ VS 文字 ══ */
+  #compare-vs {
+    font-size: 3.5rem; font-weight: 900; color: #ffd700;
+    text-shadow: 0 0 30px rgba(255,215,0,0.9), 0 0 60px rgba(255,180,0,0.6), 0 4px 8px rgba(0,0,0,0.7);
+    animation: vsBoom 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    flex-shrink: 0; z-index: 2;
+  }
+  @keyframes vsBoom { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* ══ 闪电 ── */
+  #lightning-canvas {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 1;
+  }
+
+  /* 闪光 */
+  #compare-flash {
+    position: fixed; inset: 0; z-index: 1001; pointer-events: none;
+    background: radial-gradient(circle, rgba(255,255,255,0.35) 0%, transparent 70%);
+    animation: flashPulse 0.18s ease-out;
+  }
+  @keyframes flashPulse { from { opacity: 0.9; } to { opacity: 0; } }
+
+  /* ══ 结果文字 ══ */
+  #compare-result-text {
+    margin-top: 28px; font-size: 1.6rem; font-weight: bold;
+    color: #ffd700; text-shadow: 0 0 20px rgba(255,215,0,0.9);
+    animation: resultPop 0.45s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    transition: all 0.4s ease; text-align: center;
+  }
+  @keyframes resultPop { from { transform: scale(0.3); opacity: 0; } }
 </style>
 </head>
 <body>

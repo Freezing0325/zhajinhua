@@ -81,9 +81,6 @@ function cardsVisibleTo(room, player, viewerId) {
   // showdown：未弃牌玩家的牌对其它未弃牌玩家可见（弃牌者看不到别人牌）
   if (isShowdown && !player.folded && viewer && !viewer.folded) return true;
 
-  // 比牌双方互相可见（无论是否弃牌）
-  if (viewer && viewer.comparedWith && viewer.comparedWith.includes(player.id)) return true;
-  if (player.comparedWith && player.comparedWith.includes(viewerId)) return true;
   return false;
 }
 
@@ -330,7 +327,25 @@ wss.on('connection', (ws) => {
       target.comparedWith.push(player.id);
 
       const result = compareHands(player.cards, target.cards);
-      broadcast(room, { type: 'compare_result', player1: player.name, player2: target.name, result, mode: modeStr });
+
+      // 比牌卡牌可见性规则：仅发送玩家自己的牌（已看牌时），对手牌绝不泄露。
+      // compare_cards 必须先于 compare_result 发送，确保前端收到动画触发时已缓存好牌面数据。
+      function sendCompareCards(to) {
+        to.ws.send(JSON.stringify({
+          type: 'compare_cards',
+          myCards: to.looked ? to.cards : null,
+        }));
+      }
+      sendCompareCards(player);
+      sendCompareCards(target);
+
+      // compare_result 不含卡牌，仅携带比牌双方 ID 和胜负结果
+      broadcast(room, {
+        type: 'compare_result',
+        player1: player.name, player1Id: player.id,
+        player2: target.name, player2Id: target.id,
+        result, mode: modeStr,
+      });
 
       if (result > 0) {
         target.folded = true;

@@ -2,6 +2,10 @@ let ws = null;
 let myId = null;
 let myRoomId = null;
 let gameState = null;
+// 比牌动画状态：animating 期间 room_state 会被暂缓，动画结束后一次性应用
+let compareAnimating = false;
+let pendingRoomState = null;
+let compareCardsData = null;   // 比牌个人的牌面数据（仅含自己的牌，对手牌不在此）
 
 function joinGame() {
   const name = document.getElementById('input-name').value.trim() || '匿名玩家';
@@ -23,15 +27,18 @@ function handleMessage(msg) {
       document.getElementById('room-info').textContent = `房间：${myRoomId}`;
       break;
     case 'room_state':
+      // 比牌动画期间暂缓状态更新，防止动画被中途打断
+      if (compareAnimating) { pendingRoomState = msg; break; }
       gameState = msg; renderState(msg); break;
     case 'game_start':
       showToast('游戏开始！'); break;
     case 'round_end':
       showToast(`${msg.winnerName} 赢得本局，获得 ${msg.pot} 筹码！`); break;
-    case 'compare_result': {
-      const who = msg.result > 0 ? msg.player1 : msg.player2;
-      showToast(`[${msg.mode}] ${who} 胜出`); break;
-    }
+    case 'compare_cards':
+      compareCardsData = msg; break;
+    case 'compare_result':
+      showCompareAnimation(msg, compareCardsData);
+      compareCardsData = null; break;
     case 'chat':
       appendChat(msg.message,
         (msg.message.includes('加入') || msg.message.includes('离开')) ? 'system' : 'action');
@@ -49,6 +56,11 @@ function renderState(state) {
   if (me && chkShow.checked !== !!me.showCards) chkShow.checked = !!me.showCards;
   const isMyTurn = me && state.players[state.currentTurn]?.id === myId;
   const inGame = state.phase === 'betting';
+
+  // 自己回合高亮
+  const myArea = document.getElementById('my-area');
+  if (isMyTurn) myArea.classList.add('my-turn');
+  else myArea.classList.remove('my-turn');
 
   // 其他玩家
   const area = document.getElementById('players-area');
@@ -294,4 +306,229 @@ function showToast(msg) {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ══════════════════════════════════════════════════════
+   比牌动画系统
+══════════════════════════════════════════════════════ */
+function showCompareAnimation(msg, cardsData) {
+  compareAnimating = true;
+  pendingRoomState = null;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'compare-overlay';
+
+  const canvas = document.createElement('canvas');
+  canvas.id = 'lightning-canvas';
+  overlay.appendChild(canvas);
+
+  const stage = document.createElement('div');
+  stage.id = 'compare-stage';
+
+  // 确定卡牌可见性：只有参与比牌的人能看到自己的牌，对手牌永远不可见
+  var cards1 = null;
+  var cards2 = null;
+  if (cardsData && cardsData.myCards) {
+    if (myId === msg.player1Id) {
+      cards1 = cardsData.myCards;
+    } else if (myId === msg.player2Id) {
+      cards2 = cardsData.myCards;
+    }
+  }
+
+  const hand1 = createCompareHand(msg.player1, cards1, 'hand-left');
+  const vs = document.createElement('div');
+  vs.id = 'compare-vs';
+  vs.textContent = 'VS';
+  const hand2 = createCompareHand(msg.player2, cards2, 'hand-right');
+
+  stage.appendChild(hand1);
+  stage.appendChild(vs);
+  stage.appendChild(hand2);
+  overlay.appendChild(stage);
+
+  const resultText = document.createElement('div');
+  resultText.id = 'compare-result-text';
+  overlay.appendChild(resultText);
+
+  document.body.appendChild(overlay);
+
+  requestAnimationFrame(() => {
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+  });
+
+  const winnerName = msg.result > 0 ? msg.player1 : msg.player2;
+  const loserHand = msg.result > 0 ? hand2 : hand1;
+  const winnerHand = msg.result > 0 ? hand1 : hand2;
+  const isTie = msg.result === 0;
+
+  // 闪电只在对双方均可见卡牌时才触发
+  const hasCards = cards1 || cards2;
+  if (hasCards) {
+    setTimeout(() => {
+      drawLightning(canvas);
+      triggerFlash();
+    }, 400);
+
+    setTimeout(() => {
+      drawLightning(canvas);
+      triggerFlash();
+      playThunderSound();
+    }, 750);
+  }
+
+  // T+1100ms: 揭示结果
+  setTimeout(() => {
+    if (!isTie) {
+      loserHand.classList.add('loser');
+      winnerHand.classList.add('winner');
+    }
+    const modeStr = msg.mode ? ' [' + msg.mode + ']' : '';
+    resultText.textContent = isTie ? '平局！' : winnerName + ' 胜出！' + modeStr;
+  }, 1100);
+
+  // 终结闪电
+  if (hasCards) {
+    setTimeout(() => {
+      if (!isTie) drawLightning(canvas);
+      triggerFlash();
+    }, 1300);
+  }
+
+  // T+2800ms: 结束
+  setTimeout(() => endCompareAnimation(), 2800);
+}
+
+function createCompareHand(name, cards, sideClass) {
+  const hand = document.createElement('div');
+  hand.className = 'compare-hand ' + sideClass;
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'compare-name';
+  nameEl.textContent = name;
+
+  const cardsRow = document.createElement('div');
+  cardsRow.className = 'compare-cards';
+  if (cards && cards.length === 3) {
+    for (const c of cards) cardsRow.appendChild(buildCard(c));
+  } else {
+    for (let i = 0; i < 3; i++) cardsRow.appendChild(buildBackCard());
+  }
+
+  hand.appendChild(nameEl);
+  hand.appendChild(cardsRow);
+  return hand;
+}
+
+// 在比牌动画覆盖层的 canvas 上绘制随机闪电：3 层主闪电（不同粗细/透明度） + 随机分支
+function drawLightning(canvas) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const x1 = w * 0.22;
+  const y1 = h * 0.15;
+  const x2 = w * 0.78;
+  const y2 = h * 0.15;
+
+  const segments = 7 + Math.floor(Math.random() * 5);
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const points = [{ x: x1, y: y1 }];
+
+  for (let i = 0; i < segments; i++) {
+    const t = (i + 1) / segments;
+    const baseX = x1 + dx * t;
+    const baseY = y1 + dy * t;
+    const spread = 30 + Math.random() * 50;
+    const offsetX = (Math.random() - 0.5) * spread;
+    const offsetY = (Math.random() - 0.5) * spread * 0.6;
+    points.push({ x: baseX + offsetX, y: baseY + offsetY });
+  }
+  points.push({ x: x2, y: y2 });
+
+  // 主闪电 3 层
+  for (let pass = 0; pass < 3; pass++) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    if (pass === 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = 4;
+      ctx.shadowColor = 'rgba(200,220,255,0.95)';
+      ctx.shadowBlur = 16;
+    } else if (pass === 1) {
+      ctx.strokeStyle = 'rgba(180,210,255,0.7)';
+      ctx.lineWidth = 8;
+      ctx.shadowColor = 'rgba(150,200,255,0.7)';
+      ctx.shadowBlur = 28;
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.shadowBlur = 0;
+    }
+    ctx.stroke();
+  }
+
+  // 分支闪电
+  for (let b = 0; b < 3; b++) {
+    const idx = 1 + Math.floor(Math.random() * (points.length - 3));
+    const bx = points[idx].x + (Math.random() - 0.5) * 60;
+    const by = points[idx].y + (Math.random() - 0.5) * 60;
+    ctx.beginPath();
+    ctx.moveTo(points[idx].x, points[idx].y);
+    ctx.lineTo(bx, by);
+    ctx.strokeStyle = 'rgba(200,220,255,0.4)';
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+  }
+
+  // 300ms 后清除
+  setTimeout(() => {
+    ctx.clearRect(0, 0, w, h);
+  }, 300);
+}
+
+function triggerFlash() {
+  const flash = document.createElement('div');
+  flash.id = 'compare-flash';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 250);
+}
+
+// 用 Web Audio API 振荡器（sawtooth 波，120Hz→30Hz 降频）模拟短促雷声
+function playThunderSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(120, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (_) {}
+}
+
+function endCompareAnimation() {
+  const overlay = document.getElementById('compare-overlay');
+  if (overlay) {
+    overlay.style.transition = 'opacity 0.4s ease';
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.remove(), 400);
+  }
+  compareAnimating = false;
+  if (pendingRoomState) {
+    gameState = pendingRoomState;
+    renderState(pendingRoomState);
+    pendingRoomState = null;
+  }
 }
